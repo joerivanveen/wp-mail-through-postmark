@@ -1,0 +1,23 @@
+.ruigehond019 .toggle-text-security {
+    position: absolute;
+    margin-left: -1rem;
+}
+.ruigehond019 .toggle-text-security:not(:checked) {
+    -moz-appearance: none;
+    -webkit-appearance: none;
+    appearance: none;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+}
+.ruigehond019 .toggle-text-security:after {
+    vertical-align: text-bottom;
+    content: "\1F441";
+}
+.ruigehond019 .toggle-text-security:checked:after {
+    display: none;
+}
+.ruigehond019 .toggle-text-security:checked + input[type="text"] {
+    /* use of !important because the default, hide with 'disc', is an inline style to prevent flashing */
+    -webkit-text-security: none !important;
+}
