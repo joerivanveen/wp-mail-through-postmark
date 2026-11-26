@@ -7,17 +7,15 @@ namespace Ruigehond019\Crypt;
 defined( 'ABSPATH' ) || die();
 
 function getKey(): string {
-	if(!defined('NONCE_KEY')) {
-		throw new \RuntimeException('NONCE_KEY is not defined.');
+	if ( ! defined( 'NONCE_KEY' ) || ! is_string( NONCE_KEY ) ) {
+		throw new \RuntimeException( 'NONCE_KEY is not defined.' );
+	}
+	if ( strlen( NONCE_KEY ) < 32 || 'put your unique phrase here' === NONCE_KEY ) {
+		throw new \RuntimeException( 'NONCE_KEY is too weak, set a long unique value in wp-config.php.' );
 	}
 
-	$key = NONCE_KEY;
-
-	while (strlen($key) < SODIUM_CRYPTO_SECRETBOX_KEYBYTES) {
-		$key .= NONCE_KEY;
-	}
-
-	return substr($key, 0, SODIUM_CRYPTO_SECRETBOX_KEYBYTES);
+	// A key for this plugin only (32 raw bytes), so it is not the same secret WordPress uses for nonces.
+	return hash_hmac( 'sha256', 'ruigehond019 postmark server api token', NONCE_KEY, true );
 }
 
 /**

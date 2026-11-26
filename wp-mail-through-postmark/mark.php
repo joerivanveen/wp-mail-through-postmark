@@ -8,10 +8,18 @@ defined( 'ABSPATH' ) || die();
 
 class Mail {
 	private string $api_key;
-	private string $parameters;
+	private string $parameters = '';
+	private string $error = '';
 
 	public function __construct( string $api_key ) {
 		$this->api_key = $api_key;
+	}
+
+	/**
+	 * @return string Reason the last send() failed, empty when it did not fail.
+	 */
+	public function getError(): string {
+		return $this->error;
 	}
 
 	/**
@@ -137,6 +145,11 @@ class Mail {
 			$content_type = 'text/plain';
 		}
 
+		// Plugins like WooCommerce set html through this filter instead of a header, same as core wp_mail().
+		$content_type = (string) apply_filters( 'wp_mail_content_type', $content_type );
+		// Compare only the mime type, case-insensitive, a filter may return e.g. 'Text/HTML; charset=UTF-8'.
+		$mime_type = strtolower( trim( explode( ';', $content_type )[0] ) );
+
 		// https://postmarkapp.com/developer/api/email-api#send-a-single-email
 		$post_data                = new \stdClass();
 		$post_data->From          = $this->formatAddress( $atts['from_email'], $atts['from_name'] );
@@ -150,6 +163,10 @@ class Mail {
 
 		if ( $bcc = $this->joinAddresses( $bcc ) ) {
 			$post_data->Bcc = $bcc;
+			// Postmark requires To, for Bcc-only mail send it to the verified sender so the Bcc recipients stay hidden.
+			if ( '' === $post_data->To ) {
+				$post_data->To = $post_data->From;
+			}
 		}
 
 		if ( $reply_to = $this->joinAddresses( $reply_to ) ) {
@@ -163,7 +180,7 @@ class Mail {
 			}
 		}
 
-		if ( 'text/html' === $content_type ) {
+		if ( 'text/html' === $mime_type ) {
 			$post_data->HtmlBody = $message;
 		} else {
 			$post_data->TextBody = $message;
@@ -177,13 +194,29 @@ class Mail {
 			unset( $post_data->Attachments );
 		}
 
-		$this->parameters = json_encode( $post_data );
+		// Substitute invalid UTF-8 (e.g. Latin-1 input) rather than failing, json_encode returns false otherwise.
+		$json = json_encode( $post_data, JSON_INVALID_UTF8_SUBSTITUTE );
+		if ( false === $json ) {
+			$this->error = 'Could not encode the message as JSON (' . json_last_error_msg() . ').';
+			error_log( 'WP mail through Postmark error: ' . $this->error );
+			$json = '';
+		}
+		$this->parameters = $json;
 	}
 
 	public function send(): bool {
+		if ( '' === $this->parameters ) {
+			if ( '' === $this->error ) {
+				$this->error = 'Nothing to send, the message was not prepared.';
+			}
+
+			return false; // error was logged when preparing
+		}
+		$this->error = '';
 		$ch = curl_init( 'https://api.postmarkapp.com/email' );
 		if ( ! $ch ) {
-			error_log( "WP mail through Postmark error: could not initialize cURL." );
+			$this->error = 'Could not initialize cURL.';
+			error_log( 'WP mail through Postmark error: ' . $this->error );
 
 			return false;
 		}
@@ -219,6 +252,8 @@ class Mail {
 		if ( '' !== $curl_error ) {
 			$return_value->curl_error = $curl_error;
 		}
+
+		$this->error = (string) ( $return_value->Message ?? ( '' !== $curl_error ? $curl_error : "Postmark returned status $status_code." ) );
 
 		error_log( "WP mail through Postmark error result:\n" . var_export( $return_value, true ) );
 

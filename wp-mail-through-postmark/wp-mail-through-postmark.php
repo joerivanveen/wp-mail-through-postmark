@@ -37,7 +37,7 @@ function ruigehond019_run(): void {
 }
 
 /**
- * @param null $_ not used
+ * @param mixed $pre_wp_mail null, or the result of another plugin that already handled (or blocked) this mail
  * @param array $atts
  * Array of the `wp_mail()` arguments.
  *
@@ -50,7 +50,10 @@ function ruigehond019_run(): void {
  *
  * @return bool|null True if the email was sent successfully, false if it failed, null to skip and use the default wp_mail().
  */
-function ruigehond019_mail( $_, $atts ): ?bool {
+function ruigehond019_mail( $pre_wp_mail, $atts ): ?bool {
+	if ( null !== $pre_wp_mail ) {
+		return (bool) $pre_wp_mail; // another plugin already handled (or blocked) this mail
+	}
 	$vars       = (array) get_option( 'ruigehond019' );
 	$from_email = $from_name = $vars['verified_sender'] ?? '';
 	$api_key    = ruigehond019_get_api_key( $vars );
@@ -75,8 +78,24 @@ function ruigehond019_mail( $_, $atts ): ?bool {
 
 	$mail = new \Ruigehond019\Mark\Mail( $api_key );
 	$mail->prepare( $atts );
+	$sent = $mail->send();
 
-	return $mail->send();
+	// Core wp_mail() does not fire these when pre_wp_mail short-circuits, mail logging plugins rely on them.
+	$mail_data = array(
+		'to'          => $atts['to'] ?? array(),
+		'subject'     => $atts['subject'] ?? '',
+		'message'     => $atts['message'] ?? '',
+		'headers'     => $atts['headers'] ?? array(),
+		'attachments' => $atts['attachments'] ?? array(),
+		'embeds'      => $atts['embeds'] ?? array(),
+	);
+	if ( $sent ) {
+		do_action( 'wp_mail_succeeded', $mail_data );
+	} else {
+		do_action( 'wp_mail_failed', new \WP_Error( 'wp_mail_failed', $mail->getError(), $mail_data ) );
+	}
+
+	return $sent;
 }
 
 function ruigehond019_get_api_key( array $vars ): string {
@@ -205,7 +224,11 @@ function ruigehond019_settings_validate( $input ): array {
 	if ( '' === $api_key ) {
 		unset( $options['api_key_encrypted'] ); // allow deletion of api key
 	} else {
-		$options['api_key_encrypted'] = \Ruigehond019\Crypt\encrypt( $api_key );
+		try {
+			$options['api_key_encrypted'] = \Ruigehond019\Crypt\encrypt( $api_key );
+		} catch ( \Throwable $e ) {
+			add_settings_error( 'ruigehond019', 'encrypt', __( 'The server api token was not saved: ', 'wp-mail-through-postmark' ) . $e->getMessage() );
+		}
 	}
 	unset ( $options['api_key'] ); // this should never be saved no matter what
 

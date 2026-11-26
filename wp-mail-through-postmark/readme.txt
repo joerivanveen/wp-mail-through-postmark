@@ -18,3 +18,6 @@ Fill in a Server API token and a verified sender and it works, when enabled. The
 
 The Server API token is stored encrypted in the database for security, so when your database is compromised, your token is not (and people can not instantly start spamming using your account).
 
+Multipart emails (a Content-Type: multipart/... header with a hand-built MIME body) are not supported yet, they are sent as plain text. Regular plain text and html emails work fine.
+
+Postmark accepts at most 50 recipients (To, Cc and Bcc together) per email, emails with more recipients are rejected. Emails with only Bcc recipients are sent to the verified sender, with the Bcc recipients hidden.
